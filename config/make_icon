@@ -1,0 +1,11 @@
+#!/bin/bash
+# a helper script to generate a base64 file representing a 64x64 png image
+set -e
+filename=${1:-icon.png}
+echo changing icon.b64 to $filename
+if [ $# -lt 1 ]
+then
+    echo "You can use $0 <filename> to specify an image file, using file.png as a default"
+fi
+magick $filename -resize 64x64! PNG:- | base64 > icon.b64
+echo wrote base64 icon.png with size 64x64 to file icon.b64

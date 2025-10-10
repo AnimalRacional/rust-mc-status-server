@@ -1,0 +1,15 @@
+[package]
+name = "statusserver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+byteorder = "1.5.0"
+futures = "0.3.31"
+json = "0.12.4"
+lazy_static = "1.5.0"
+notify = "8.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "0.9.8"
+uuid = { version = "1.18.1", features = ["serde"] }
+varint = { version = "0.1.0", path = "../varint" }

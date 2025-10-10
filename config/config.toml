@@ -1,0 +1,39 @@
+# the amount of currently online players
+online_players = 60
+# the maximum amount of players
+max_players = 55
+
+# Most text can be colored using color codes
+# https://minecraft.wiki/w/Formatting_codes#Color_codes
+# the list of players, with an optional uuid
+player_list = [ 
+    { name = "§ajeb_", uuid = "853c80ef-3c37-49fd-aa49-938b674adae6" },
+    { name = "§cHerobrine" }, 
+]
+
+# The motd and kick_message can be minecraft Json text components
+# https://minecraft.wiki/w/Text_component_format
+
+# The text seen in the server list
+# Shows 'status server' in bold and pink
+motd = '§d§lstatus server'
+# Shows 'status server' underlined, in bold and dark dark_green, with nether stars around: only works in 1.21.9+
+# motd = '[{"object": "atlas", "sprite": "item/nether_star"}, {"text":"status server","bold":true,"underlined":true,"color":"dark_green"}, {"object": "atlas", "sprite": "item/nether_star"}]'
+# Shows 'Diamond Sword' in blue, in the player's language
+# motd = '{ "type": "translatable", "translate":"item.minecraft.diamond_sword","color":"blue"}'
+
+# The message seen when trying to join the server
+# 'You have been killed by a Diamond Sword' in red; the 'Diamond Sword' is translated to the player's language
+kick_message = '[ { "text": "You have been killed by a ", "color": "red" }, { "type": "translatable", "translate":"item.minecraft.diamond_sword" }]'
+# 'abc' in red
+# kick_message = '§cabc'
+# You can also show item textures, but only in 1.21.9+
+# kick_message = '[ {"object": "atlas", "sprite": "item/diamond"}, "\n", {"object": "atlas", "sprite": "item/diamond"}, "\n", {"object": "atlas", "sprite": "item/stick"}, "\n", "\n", { "object": "atlas", "sprite": "item/diamond_sword" } ]'
+
+# The version that will be shown for players with a different protocol from the server
+# It can't have Json components like motd and kick_message, but it can still have color codes
+version = '§b1.20'
+
+# If this is not set, the protocol will always be the same as the player's
+
+# protocol = 127
