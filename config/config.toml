@@ -17,7 +17,7 @@ player_list = [
 # The text seen in the server list
 # Shows 'status server' in bold and pink
 motd = '§d§lstatus server'
-# Shows 'status server' underlined, in bold and dark dark_green, with nether stars around: only works in 1.21.9+
+# Shows 'status server' underlined, in bold and dark_green, with nether stars around: only works in 1.21.9+
 # motd = '[{"object": "atlas", "sprite": "item/nether_star"}, {"text":"status server","bold":true,"underlined":true,"color":"dark_green"}, {"object": "atlas", "sprite": "item/nether_star"}]'
 # Shows 'Diamond Sword' in blue, in the player's language
 # motd = '{ "type": "translatable", "translate":"item.minecraft.diamond_sword","color":"blue"}'

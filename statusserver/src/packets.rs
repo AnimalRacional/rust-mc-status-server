@@ -159,6 +159,7 @@ fn send_packet(packet_id: i32, data: &[u8], client: &mut Player) -> Result<(), P
 }
 
 pub fn handle_ping<T: Read>(data: &mut T, client: &mut Player) -> Result<(), PacketError> {
+    println!("{}: Ping packet", client.addr);
     let pong = data.read_u64::<BigEndian>()?;
     send_packet(0x01, &pong.to_be_bytes(), client)?;
     Ok(())

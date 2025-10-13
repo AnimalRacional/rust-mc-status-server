@@ -1,4 +1,6 @@
-use std::{fs, net::{TcpListener, TcpStream}, path::{Path, PathBuf}, str::FromStr, sync::{mpsc, RwLock}, thread};
+use clap::Parser;
+
+use std::{fs, net::{TcpListener, TcpStream}, path::{Path, PathBuf}, str::FromStr, sync::{mpsc, RwLock}, thread, time::Duration};
 
 use lazy_static::lazy_static;
 use notify::{event::{AccessKind, AccessMode}, Event, EventKind, RecursiveMode, Result, Watcher};
@@ -22,6 +24,8 @@ lazy_static!(
 );
 
 fn handle_client(stream: TcpStream) {
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
     let mut player = Player::new(stream);
     while match player.receive_packet(&server_info.read().unwrap()) {
         Ok(_) => {
@@ -68,7 +72,16 @@ fn load_config(config_path: &Path) {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about)]
+struct CommandArgs {
+    // The host to open on
+    #[arg(short, long, default_value_t = String::from("127.0.0.1:25565"))]
+    ip: String,
+}
+
 fn main() {
+    let args = CommandArgs::parse();
     load_config(&PathBuf::from_str("config/config.toml").unwrap());
     load_icon(&PathBuf::from_str("config/icon.b64").unwrap());
     {
@@ -88,10 +101,11 @@ fn main() {
     let mut watcher = notify::recommended_watcher(sender).unwrap();
     watcher.watch(Path::new("config"), RecursiveMode::NonRecursive).unwrap();
     println!("Hello, world!");
-    let listener = match TcpListener::bind("127.0.0.1:8500") {
+    let listener = match TcpListener::bind(&args.ip) {
         Ok(listener) => listener,
         Err(e) => { eprintln!("Something went wrong while listening for connections! {}", e); return; }
     };
+    println!("Listening on {}", args.ip);
     thread::scope(move |s| {
         s.spawn(move || {
             for client in listener.incoming() {
