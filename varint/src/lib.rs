@@ -45,7 +45,7 @@ mod tests {
         let res = decode_stream(&mut bytes).expect("error decoding stream");
         assert_eq!(res, trg);
         let res = encode(trg);
-        assert_eq!(res, Ok(vect));
+        assert_eq!(res, vect);
     }
 
     #[test]
@@ -67,7 +67,7 @@ mod tests {
     fn check_equal_4bytes() {
         for i in 0 .. (0xffffu32) {
             let i = i as i32;
-            let encoded = encode(i).unwrap();
+            let encoded = encode(i);
             let mut encoded = encoded.as_slice();
             assert_eq!(decode_stream(&mut encoded).unwrap(), i);
         }
