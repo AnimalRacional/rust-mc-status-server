@@ -57,15 +57,20 @@ impl From<PlayerListEntry> for JsonValue {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct ServerInfo {
+pub struct ServerConfig {
     pub version: String,
     pub protocol: Option<u16>,
     pub online_players: i32,
     pub max_players: i32,
     pub player_list: Vec<PlayerListEntry>,
     pub motd: String,
-    pub icon: Option<String>,
     pub kick_message: String
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ServerInfo {
+    pub config: ServerConfig,
+    pub icon: Option<String>,
 }
 
 pub fn handle_status_login<T: Read>(packet: &mut T, client: &mut Player, info: &ServerInfo) -> Result<(), PacketError>{
@@ -167,7 +172,7 @@ pub fn handle_ping<T: Read>(data: &mut T, client: &mut Player) -> Result<(), Pac
 
 fn handle_status<T: Read>(_: &mut T, client: &mut Player, info: &ServerInfo) -> Result<(), PacketError> {
     println!("Received status packet from {}", client.addr);
-    let protocol: u16 = match info.protocol {
+    let protocol: u16 = match info.config.protocol {
         Some(p) => p,
         None => {
             match &client.handshake_info {
@@ -177,12 +182,12 @@ fn handle_status<T: Read>(_: &mut T, client: &mut Player, info: &ServerInfo) -> 
         }
     };
     let response = make_status_response(
-        &info.version, 
+        &info.config.version, 
         protocol, 
-        info.max_players, 
-        info.online_players, 
-        &info.player_list, 
-        &info.motd, 
+        info.config.max_players, 
+        info.config.online_players, 
+        &info.config.player_list, 
+        &info.config.motd, 
         false, 
         info.icon.as_deref()
     );
@@ -206,10 +211,10 @@ fn handle_login<T: Read>(packet: &mut T, client: &mut Player, info: &ServerInfo)
     let name = String::from_utf8(namebuf)?;
     let uuid = packet.read_u128::<BigEndian>()?;
     println!("Player login: {} {}", name, uuid);
-    let first_char = info.kick_message.chars().nth(0).unwrap();
+    let first_char = info.config.kick_message.trim().chars().nth(0).unwrap();
     let kick_message: &str = match first_char {
-        '[' | '{' => &info.kick_message,
-        _ => &format!("\"{}\"", info.kick_message)
+        '[' | '{' => &info.config.kick_message,
+        _ => &format!("\"{}\"", info.config.kick_message)
     };
     let mut total_data = varint::encode(kick_message.len() as i32);
     total_data.extend(kick_message.as_bytes());

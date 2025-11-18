@@ -114,11 +114,11 @@ impl Player {
         println!("(legacy) {} connecting to {}:{} protocol version {}", self.addr, hostname, port, protocol);
         // Send response
         let header = [0x00, 0xa7, 0x00, 0x31, 0x00, 0x00];
-        let protocol = match info.protocol {
+        let protocol = match info.config.protocol {
             Some(p) => p,
             None => protocol as u16
         };
-        let response = format!("{}\x00{}\x00{}\x00{}\x00{}\x00", protocol, info.version, info.motd, info.online_players, info.max_players);
+        let response = format!("{}\x00{}\x00{}\x00{}\x00{}\x00", protocol, info.config.version, info.config.motd, info.config.online_players, info.config.max_players);
         self.connection.write_u8(0xff)?;
         self.connection.write_u16::<BigEndian>(response.len() as u16)?;
         self.connection.write(&header)?;

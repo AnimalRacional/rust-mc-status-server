@@ -5,21 +5,23 @@ use std::{fs, net::{TcpListener, TcpStream}, path::{Path, PathBuf}, str::FromStr
 use lazy_static::lazy_static;
 use notify::{event::{AccessKind, AccessMode}, Event, EventKind, RecursiveMode, Result, Watcher};
 
-use crate::{packets::ServerInfo, player::Player};
+use crate::{packets::{ServerConfig, ServerInfo}, player::Player};
 
 pub mod packets;
 pub mod player;
 
 lazy_static!(
     static ref server_info: RwLock<ServerInfo> = ServerInfo {
-        version: String::from("custom"),
-        protocol: Some(127),
-        online_players: 0,
-        max_players: 0,
-        player_list: vec![],
-        motd: String::from("A status server"),
+        config: ServerConfig {
+            version: String::from("custom"),
+            protocol: Some(127),
+            online_players: 0,
+            max_players: 0,
+            player_list: vec![],
+            motd: String::from("A status server"),
+            kick_message: String::from("Just a status server")
+        },
         icon: None,
-        kick_message: String::from("Just a status server")
     }.into();
 );
 
@@ -59,11 +61,10 @@ fn load_icon(icon_path: &Path) {
 fn load_config(config_path: &Path) {    
     match &fs::read_to_string(config_path) {
         Ok(text) => {
-            match toml::from_str::<ServerInfo>(text) {
-                Ok(mut config) => {
+            match toml::from_str::<ServerConfig>(text) {
+                Ok(config) => {
                     let mut cfg = server_info.write().unwrap();
-                    config.icon = cfg.icon.clone(); // TODO don't clone icon
-                    *cfg = config;
+                    cfg.config = config;
                 },
                 Err(e) => { eprintln!("Couldn't parse config file! {}", e); }
             }
@@ -85,17 +86,17 @@ fn main() {
     load_config(&PathBuf::from_str("config/config.toml").unwrap());
     load_icon(&PathBuf::from_str("config/icon.b64").unwrap());
     {
-        let config = server_info.read().unwrap();
+        let info = server_info.read().unwrap();
         println!("Loaded config");
-        println!("Players: {}/{}", config.online_players, config.max_players);
-        for i in &config.player_list {
+        println!("Players: {}/{}", info.config.online_players, info.config.max_players);
+        for i in &info.config.player_list {
             println!("- {}", i.name);
         }
-        println!("Version {}, Protocol {}", config.version, match config.protocol {
+        println!("Version {}, Protocol {}", info.config.version, match info.config.protocol {
             Some(p) => &p.to_string(),
             None => "same as player"
         });
-        println!("Kick message: {}", config.kick_message);
+        println!("Kick message: {}", info.config.kick_message);
     }
     let (sender, receiver) = mpsc::channel::<Result<Event>>();
     let mut watcher = notify::recommended_watcher(sender).unwrap();
