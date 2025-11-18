@@ -1,16 +1,30 @@
 use clap::Parser;
 
-use std::{fs, net::{TcpListener, TcpStream}, path::{Path, PathBuf}, str::FromStr, sync::{mpsc, RwLock}, thread, time::Duration};
+use std::{
+    fs,
+    net::{TcpListener, TcpStream},
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::{mpsc, RwLock},
+    thread,
+    time::Duration,
+};
 
 use lazy_static::lazy_static;
-use notify::{event::{AccessKind, AccessMode}, Event, EventKind, RecursiveMode, Result, Watcher};
+use notify::{
+    event::{AccessKind, AccessMode},
+    Event, EventKind, RecursiveMode, Result, Watcher,
+};
 
-use crate::{packets::{ServerConfig, ServerInfo}, player::Player};
+use crate::{
+    packets::{ServerConfig, ServerInfo},
+    player::Player,
+};
 
 pub mod packets;
 pub mod player;
 
-lazy_static!(
+lazy_static! (
     static ref server_info: RwLock<ServerInfo> = ServerInfo {
         config: ServerConfig {
             version: String::from("custom"),
@@ -22,18 +36,23 @@ lazy_static!(
             kick_message: String::from("Just a status server")
         },
         icon: None,
-    }.into();
+    }
+    .into();
 );
 
 fn handle_client(stream: TcpStream) {
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
     let mut player = Player::new(stream);
     while match player.receive_packet(&server_info.read().unwrap()) {
         Ok(_) => {
             println!("{}: Finished receiving packet", player.addr);
             true
-        },
+        }
         Err(e) => {
             println!("Closed connection with {}", player.addr);
             println!("reason {:?}", e);
@@ -44,9 +63,7 @@ fn handle_client(stream: TcpStream) {
 
 fn load_icon(icon_path: &Path) {
     let icon: Option<String> = match fs::read_to_string(icon_path) {
-        Ok(icon_b64) => {
-            Some(icon_b64)
-        },
+        Ok(icon_b64) => Some(icon_b64),
         Err(e) => {
             eprintln!("Couldn't read icon from icon.b64 file! {}", e);
             None
@@ -58,18 +75,20 @@ fn load_icon(icon_path: &Path) {
     }
 }
 
-fn load_config(config_path: &Path) {    
+fn load_config(config_path: &Path) {
     match &fs::read_to_string(config_path) {
-        Ok(text) => {
-            match toml::from_str::<ServerConfig>(text) {
-                Ok(config) => {
-                    let mut cfg = server_info.write().unwrap();
-                    cfg.config = config;
-                },
-                Err(e) => { eprintln!("Couldn't parse config file! {}", e); }
+        Ok(text) => match toml::from_str::<ServerConfig>(text) {
+            Ok(config) => {
+                let mut cfg = server_info.write().unwrap();
+                cfg.config = config;
+            }
+            Err(e) => {
+                eprintln!("Couldn't parse config file! {}", e);
             }
         },
-        Err(e) => { eprintln!("Couldn't read config file! {}", e); }
+        Err(e) => {
+            eprintln!("Couldn't read config file! {}", e);
+        }
     }
 }
 
@@ -88,31 +107,51 @@ fn main() {
     {
         let info = server_info.read().unwrap();
         println!("Loaded config");
-        println!("Players: {}/{}", info.config.online_players, info.config.max_players);
+        println!(
+            "Players: {}/{}",
+            info.config.online_players, info.config.max_players
+        );
         for i in &info.config.player_list {
             println!("- {}", i.name);
         }
-        println!("Version {}, Protocol {}", info.config.version, match info.config.protocol {
-            Some(p) => &p.to_string(),
-            None => "same as player"
-        });
+        println!(
+            "Version {}, Protocol {}",
+            info.config.version,
+            match info.config.protocol {
+                Some(p) => &p.to_string(),
+                None => "same as player",
+            }
+        );
         println!("Kick message: {}", info.config.kick_message);
     }
     let (sender, receiver) = mpsc::channel::<Result<Event>>();
     let mut watcher = notify::recommended_watcher(sender).unwrap();
-    watcher.watch(Path::new("config"), RecursiveMode::NonRecursive).unwrap();
+    watcher
+        .watch(Path::new("config"), RecursiveMode::NonRecursive)
+        .unwrap();
     println!("Hello, world!");
     let listener = match TcpListener::bind(&args.ip) {
         Ok(listener) => listener,
-        Err(e) => { eprintln!("Something went wrong while listening for connections! {}", e); return; }
+        Err(e) => {
+            eprintln!(
+                "Something went wrong while listening for connections! {}",
+                e
+            );
+            return;
+        }
     };
     println!("Listening on {}", args.ip);
     thread::scope(move |s| {
         s.spawn(move || {
             for client in listener.incoming() {
                 match client {
-                    Ok(stream) => { std::thread::spawn(move || handle_client(stream)); }
-                    Err(e) => { eprintln!("Couldn't get client! {e}"); return; }
+                    Ok(stream) => {
+                        std::thread::spawn(move || handle_client(stream));
+                    }
+                    Err(e) => {
+                        eprintln!("Couldn't get client! {e}");
+                        return;
+                    }
                 }
             }
         });
@@ -135,7 +174,7 @@ fn main() {
                             }
                         }
                     }
-                    Err(e) => eprintln!("file watch error {:?}", e)
+                    Err(e) => eprintln!("file watch error {:?}", e),
                 }
             }
         });

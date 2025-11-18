@@ -1,16 +1,16 @@
 use std::io::{Error, Read};
 
-pub fn decode_stream<T: Read>(stream: &mut T) -> Result<i32, Error>{
+pub fn decode_stream<T: Read>(stream: &mut T) -> Result<i32, Error> {
     let mut shift: u8 = 0;
     let mut result: i32 = 0;
     let mut buf: [u8; 1] = [0];
     loop {
         let i: Result<usize, Error> = stream.read(&mut buf);
         let i = match i {
-            Ok(_) => {
-                buf[0] as i32
-            },
-            Err(err) => { return Err(err); }
+            Ok(_) => buf[0] as i32,
+            Err(err) => {
+                return Err(err);
+            }
         };
         result = result | ((i & 0x7f) << shift);
         shift += 7;
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn check_equal_4bytes() {
-        for i in 0 .. (0xffffu32) {
+        for i in 0..(0xffffu32) {
             let i = i as i32;
             let encoded = encode(i);
             let mut encoded = encoded.as_slice();

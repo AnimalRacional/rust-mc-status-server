@@ -1,8 +1,11 @@
-use serde::Deserialize;
-use uuid::Uuid;
-use std::{io::{Error, Read, Write}, string::{FromUtf16Error, FromUtf8Error}};
 use byteorder::{BigEndian, ReadBytesExt};
 use json::{object, JsonValue};
+use serde::Deserialize;
+use std::{
+    io::{Error, Read, Write},
+    string::{FromUtf16Error, FromUtf8Error},
+};
+use uuid::Uuid;
 
 use crate::player::{ConnectionState, HandshakeInfo, Player};
 
@@ -14,7 +17,7 @@ pub enum PacketError {
     FromUtf8Error(FromUtf8Error),
     FromUtf16Error(FromUtf16Error),
     DataError(Vec<u8>),
-    ClosedError
+    ClosedError,
 }
 
 impl From<std::io::Error> for PacketError {
@@ -38,12 +41,15 @@ impl From<FromUtf16Error> for PacketError {
 #[derive(Deserialize, Debug, Clone)]
 pub struct PlayerListEntry {
     pub name: String,
-    pub uuid: Option<Uuid>
+    pub uuid: Option<Uuid>,
 }
 
 impl From<(&str, Option<Uuid>)> for PlayerListEntry {
     fn from(value: (&str, Option<Uuid>)) -> Self {
-        PlayerListEntry { name: value.0.to_string(), uuid: value.1 }
+        PlayerListEntry {
+            name: value.0.to_string(),
+            uuid: value.1,
+        }
     }
 }
 
@@ -64,7 +70,7 @@ pub struct ServerConfig {
     pub max_players: i32,
     pub player_list: Vec<PlayerListEntry>,
     pub motd: String,
-    pub kick_message: String
+    pub kick_message: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -73,7 +79,11 @@ pub struct ServerInfo {
     pub icon: Option<String>,
 }
 
-pub fn handle_status_login<T: Read>(packet: &mut T, client: &mut Player, info: &ServerInfo) -> Result<(), PacketError>{
+pub fn handle_status_login<T: Read>(
+    packet: &mut T,
+    client: &mut Player,
+    info: &ServerInfo,
+) -> Result<(), PacketError> {
     println!("Received status/login packet from {}", client.addr);
     let state = &client.state;
     match state {
@@ -86,12 +96,17 @@ pub fn handle_status_login<T: Read>(packet: &mut T, client: &mut Player, info: &
         ConnectionState::LOGIN => {
             handle_login(packet, client, info)?;
         }
-        s => { eprintln!("Invalid request: packet 0 in state {} by {}", s, client.addr); }
+        s => {
+            eprintln!(
+                "Invalid request: packet 0 in state {} by {}",
+                s, client.addr
+            );
+        }
     };
     Ok(())
 }
 
-fn handle_handshake<T: Read>(packet: &mut T, client: &mut Player) -> Result<(), PacketError>{
+fn handle_handshake<T: Read>(packet: &mut T, client: &mut Player) -> Result<(), PacketError> {
     println!("Received handshake packet from {}", client.addr);
     let stream = packet;
     let protocol_version = varint::decode_stream(stream)? as u16;
@@ -101,39 +116,46 @@ fn handle_handshake<T: Read>(packet: &mut T, client: &mut Player) -> Result<(), 
     let host = String::from_utf8(strbuf)?;
     let port = stream.read_u16::<BigEndian>()?;
     let intent = varint::decode_stream(stream)?;
-    let intent = 
-    ConnectionState::try_from(intent as u8)
-    .or_else(|_| Err(PacketError::DataError(vec![ intent as u8 ])))?;
-    println!("{}:{} connected with protocol {} intent {}", host, port, protocol_version, intent);
+    let intent = ConnectionState::try_from(intent as u8)
+        .or_else(|_| Err(PacketError::DataError(vec![intent as u8])))?;
+    println!(
+        "{}:{} connected with protocol {} intent {}",
+        host, port, protocol_version, intent
+    );
     let info = HandshakeInfo {
         protocol: protocol_version,
         server_addr: host,
-        server_port: port
+        server_port: port,
     };
     client.handshake_info = Some(info);
     client.state = intent;
     Ok(())
 }
 
-fn make_status_response(version: &str, protocol: u16, maxplr: i32, players: i32, playerlist: &Vec<PlayerListEntry>, motd: &str, secure: bool, icon: Option<&str>) -> String {
+fn make_status_response(
+    version: &str,
+    protocol: u16,
+    maxplr: i32,
+    players: i32,
+    playerlist: &Vec<PlayerListEntry>,
+    motd: &str,
+    secure: bool,
+    icon: Option<&str>,
+) -> String {
     let first_char = motd.chars().nth(0).unwrap();
     let motd = match first_char {
-        '[' | '{' => {
-            match json::parse(motd) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Couldn't parse json motd: {}", e); 
-                    JsonValue::String(String::from("motd"))
-                }
+        '[' | '{' => match json::parse(motd) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Couldn't parse json motd: {}", e);
+                JsonValue::String(String::from("motd"))
             }
-        }
-        _ => { 
-            json::JsonValue::String(motd.to_string()) 
-        }
+        },
+        _ => json::JsonValue::String(motd.to_string()),
     };
     let icon = match icon {
-        Some(i) => Some( format!("data:image/png;base64,{i}") ),
-        None => None
+        Some(i) => Some(format!("data:image/png;base64,{i}")),
+        None => None,
     };
     let obj = object! {
         version: {
@@ -170,26 +192,28 @@ pub fn handle_ping<T: Read>(data: &mut T, client: &mut Player) -> Result<(), Pac
     Ok(())
 }
 
-fn handle_status<T: Read>(_: &mut T, client: &mut Player, info: &ServerInfo) -> Result<(), PacketError> {
+fn handle_status<T: Read>(
+    _: &mut T,
+    client: &mut Player,
+    info: &ServerInfo,
+) -> Result<(), PacketError> {
     println!("Received status packet from {}", client.addr);
     let protocol: u16 = match info.config.protocol {
         Some(p) => p,
-        None => {
-            match &client.handshake_info {
-                Some(p) => p.protocol,
-                None => 127
-            }
-        }
+        None => match &client.handshake_info {
+            Some(p) => p.protocol,
+            None => 127,
+        },
     };
     let response = make_status_response(
-        &info.config.version, 
-        protocol, 
-        info.config.max_players, 
-        info.config.online_players, 
-        &info.config.player_list, 
-        &info.config.motd, 
-        false, 
-        info.icon.as_deref()
+        &info.config.version,
+        protocol,
+        info.config.max_players,
+        info.config.online_players,
+        &info.config.player_list,
+        &info.config.motd,
+        false,
+        info.icon.as_deref(),
     );
     let response = response.as_bytes();
     let mut full_data = varint::encode(response.len() as i32);
@@ -198,7 +222,11 @@ fn handle_status<T: Read>(_: &mut T, client: &mut Player, info: &ServerInfo) -> 
     Ok(())
 }
 
-fn handle_login<T: Read>(packet: &mut T, client: &mut Player, info: &ServerInfo) -> Result<(), PacketError> {
+fn handle_login<T: Read>(
+    packet: &mut T,
+    client: &mut Player,
+    info: &ServerInfo,
+) -> Result<(), PacketError> {
     println!("Received login packet from {}", client.addr);
     let name_len = varint::decode_stream(packet)?;
     if name_len > 16 {
@@ -214,7 +242,7 @@ fn handle_login<T: Read>(packet: &mut T, client: &mut Player, info: &ServerInfo)
     let first_char = info.config.kick_message.trim().chars().nth(0).unwrap();
     let kick_message: &str = match first_char {
         '[' | '{' => &info.config.kick_message,
-        _ => &format!("\"{}\"", info.config.kick_message)
+        _ => &format!("\"{}\"", info.config.kick_message),
     };
     let mut total_data = varint::encode(kick_message.len() as i32);
     total_data.extend(kick_message.as_bytes());
