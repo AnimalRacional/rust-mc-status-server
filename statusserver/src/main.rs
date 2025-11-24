@@ -1,19 +1,13 @@
 use clap::Parser;
 
 use std::{
-    fs,
-    net::{TcpListener, TcpStream},
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::{mpsc, RwLock},
-    thread,
-    time::Duration,
+    fs, io, net::{TcpListener, TcpStream}, path::{Path, PathBuf}, str::FromStr, sync::{RwLock, mpsc}, thread, time::Duration
 };
 
 use lazy_static::lazy_static;
 use notify::{
     event::{AccessKind, AccessMode},
-    Event, EventKind, RecursiveMode, Result, Watcher,
+    Event, EventKind, RecursiveMode, Watcher,
 };
 
 use crate::{
@@ -40,15 +34,19 @@ lazy_static! (
     .into();
 );
 
-fn handle_client(stream: TcpStream) {
+enum ClientError {
+    IOError(io::Error),
+    InfoUnlock
+}
+
+fn handle_client(stream: TcpStream) -> Result<(), ClientError> {
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
+        .set_read_timeout(Some(Duration::from_secs(5))).map_err(ClientError::IOError)?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
+        .set_write_timeout(Some(Duration::from_secs(5))).map_err(ClientError::IOError)?;
     let mut player = Player::new(stream);
-    while match player.receive_packet(&server_info.read().unwrap()) {
+    let info = &server_info.read().map_err(|_| ClientError::InfoUnlock)?;
+    while match player.receive_packet(&info) {
         Ok(_) => {
             println!("{}: Finished receiving packet", player.addr);
             true
@@ -59,6 +57,7 @@ fn handle_client(stream: TcpStream) {
             false
         }
     } {}
+    Ok(())
 }
 
 fn load_icon(icon_path: &Path) {
@@ -105,26 +104,31 @@ fn main() {
     load_config(&PathBuf::from_str("config/config.toml").unwrap());
     load_icon(&PathBuf::from_str("config/icon.b64").unwrap());
     {
-        let info = server_info.read().unwrap();
-        println!("Loaded config");
-        println!(
-            "Players: {}/{}",
-            info.config.online_players, info.config.max_players
-        );
-        for i in &info.config.player_list {
-            println!("- {}", i.name);
+        let info = server_info.read();
+        match info {
+            Ok(info) => {
+                println!("Loaded config");
+                println!(
+                    "Players: {}/{}",
+                    info.config.online_players, info.config.max_players
+                );
+                for i in &info.config.player_list {
+                    println!("- {}", i.name);
+                }
+                println!(
+                    "Version {}, Protocol {}",
+                    info.config.version,
+                    match info.config.protocol {
+                        Some(p) => &p.to_string(),
+                        None => "same as player",
+                    }
+                );
+                println!("Kick message: {}", info.config.kick_message);
+            },
+            Err(_) => { eprintln!("Couldn't unlock server info for reading"); }
         }
-        println!(
-            "Version {}, Protocol {}",
-            info.config.version,
-            match info.config.protocol {
-                Some(p) => &p.to_string(),
-                None => "same as player",
-            }
-        );
-        println!("Kick message: {}", info.config.kick_message);
     }
-    let (sender, receiver) = mpsc::channel::<Result<Event>>();
+    let (sender, receiver) = mpsc::channel::<Result<Event, notify::Error>>();
     let mut watcher = notify::recommended_watcher(sender).unwrap();
     watcher
         .watch(Path::new("config"), RecursiveMode::NonRecursive)
