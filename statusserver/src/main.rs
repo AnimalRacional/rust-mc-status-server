@@ -97,12 +97,26 @@ struct CommandArgs {
     // The host to open on
     #[arg(short, long, default_value_t = String::from("127.0.0.1:25565"))]
     ip: String,
+    #[arg(short, long, default_value = "./config")]
+    cfgdir: PathBuf
 }
 
 fn main() {
     let args = CommandArgs::parse();
-    load_config(&PathBuf::from_str("config/config.toml").unwrap());
-    load_icon(&PathBuf::from_str("config/icon.b64").unwrap());
+    let c = args.cfgdir.display();
+    println!("Using {c} as config dir");
+    let config_path = {
+        let mut c = args.cfgdir.clone();
+        c.push("config.toml");
+        c
+    };
+    let icon_path = {
+        let mut c = args.cfgdir.clone();
+        c.push("icon.b64");
+        c
+    };
+    load_config(&config_path);
+    load_icon(&icon_path);
     {
         let info = server_info.read();
         match info {
@@ -128,11 +142,26 @@ fn main() {
             Err(_) => { eprintln!("Couldn't unlock server info for reading"); }
         }
     }
-    let (sender, receiver) = mpsc::channel::<Result<Event, notify::Error>>();
-    let mut watcher = notify::recommended_watcher(sender).unwrap();
-    watcher
-        .watch(Path::new("config"), RecursiveMode::NonRecursive)
-        .unwrap();
+    let receiver= 'receiverval: {
+        let (sender, recver) = mpsc::channel::<Result<Event, notify::Error>>();
+        let mut watcher = match notify::recommended_watcher(sender) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("Couldn't start file watcher! {}", e);
+
+                break 'receiverval None
+            }
+        };
+        let w = watcher
+            .watch(&args.cfgdir, RecursiveMode::NonRecursive);
+        if let Err(e) = w { 
+            eprintln!("Couldn't watch config directory: {}", e);
+            break 'receiverval None
+        }
+
+        Some(recver)
+    };
+
     println!("Hello, world!");
     let listener = match TcpListener::bind(&args.ip) {
         Ok(listener) => listener,
@@ -159,28 +188,33 @@ fn main() {
                 }
             }
         });
-        s.spawn(move || {
-            for res in receiver {
-                match res {
-                    Ok(event) => {
-                        // TODO there may to be a better way of doing this...
-                        if event.kind == EventKind::Access(AccessKind::Close(AccessMode::Write)) {
-                            for i in event.paths {
-                                if i.ends_with("config.toml") {
-                                    load_config(&i);
-                                    println!("Reloaded config");
-                                    break;
-                                } else if i.ends_with("icon.b64") {
-                                    load_icon(&i);
-                                    println!("Reloaded icon");
-                                    break;
+        if let Some(receiver) = receiver {
+            println!("Listening for config changes...");
+            s.spawn(move || {
+                for res in receiver {
+                    match res {
+                        Ok(event) => {
+                            // TODO there may to be a better way of doing this...
+                            if event.kind == EventKind::Access(AccessKind::Close(AccessMode::Write)) {
+                                for i in event.paths {
+                                    if i.ends_with("config.toml") {
+                                        load_config(&i);
+                                        println!("Reloaded config");
+                                        break;
+                                    } else if i.ends_with("icon.b64") {
+                                        load_icon(&i);
+                                        println!("Reloaded icon");
+                                        break;
+                                    }
                                 }
                             }
                         }
+                        Err(e) => eprintln!("file watch error {:?}", e),
                     }
-                    Err(e) => eprintln!("file watch error {:?}", e),
                 }
-            }
-        });
+            });
+        } else {
+            eprintln!("Not listening for config changes!");
+        }
     })
 }
