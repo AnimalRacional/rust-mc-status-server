@@ -46,17 +46,19 @@ fn handle_client(stream: TcpStream) -> Result<(), ClientError> {
         .set_write_timeout(Some(Duration::from_secs(5))).map_err(ClientError::IOError)?;
     let mut player = Player::new(stream);
     let info = &server_info.read().map_err(|_| ClientError::InfoUnlock)?;
-    while match player.receive_packet(&info) {
-        Ok(_) => {
-            println!("{}: Finished receiving packet", player.addr);
-            true
+    loop {
+        let state = player.receive_packet(&info);
+        match state {
+            Ok(_) => {
+                println!("{}: Finished receiving packet", player.addr);
+            },
+            Err(e) => {
+                println!("Closed connection with {}", player.addr);
+                println!("reason: {:?}", e);
+                break;
+            }
         }
-        Err(e) => {
-            println!("Closed connection with {}", player.addr);
-            println!("reason {:?}", e);
-            false
-        }
-    } {}
+    }
     Ok(())
 }
 
