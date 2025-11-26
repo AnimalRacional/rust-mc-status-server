@@ -2,8 +2,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use json::{object, JsonValue};
 use serde::Deserialize;
 use std::{
-    io::{Error, Read, Write},
-    string::{FromUtf16Error, FromUtf8Error},
+    io::{Error, Read, Write}, str::Utf8Error, string::{FromUtf8Error, FromUtf16Error}
 };
 use uuid::Uuid;
 
@@ -15,6 +14,7 @@ const DEFAULT_UUID: Uuid = *uuid::Builder::from_bytes([0u8; 16]).as_uuid();
 pub enum PacketError {
     IOError(Error),
     FromUtf8Error(FromUtf8Error),
+    Utf8Error(Utf8Error),
     FromUtf16Error(FromUtf16Error),
     DataError(Vec<u8>),
     ClosedError,
@@ -29,6 +29,12 @@ impl From<std::io::Error> for PacketError {
 impl From<FromUtf8Error> for PacketError {
     fn from(value: FromUtf8Error) -> Self {
         PacketError::FromUtf8Error(value)
+    }
+}
+
+impl From<Utf8Error> for PacketError {
+    fn from(value: Utf8Error) -> Self {
+        PacketError::Utf8Error(value)
     }
 }
 
@@ -229,14 +235,16 @@ fn handle_login<T: Read>(
 ) -> Result<(), PacketError> {
     println!("Received login packet from {}", client.addr);
     let name_len = varint::decode_stream(packet)?;
-    if name_len > 16 {
-        eprintln!("Name too big {}", name_len);
+    if name_len <= 0 || name_len > 16 {
+        eprintln!("Invalid name length {}", name_len);
         client.connection.shutdown(std::net::Shutdown::Both)?;
         return Err(PacketError::DataError(name_len.to_be_bytes().to_vec()));
     }
-    let mut namebuf = vec![0; name_len as usize];
-    packet.read_exact(&mut namebuf)?;
-    let name = String::from_utf8(namebuf)?;
+    // let mut namebuf = vec![0; name_len as usize];
+    let mut namebuf = [0u8; 16];
+    let (namebuf, _) = namebuf.split_at_mut(name_len as usize);
+    packet.read_exact(namebuf)?;
+    let name = str::from_utf8(namebuf)?;
     let uuid = packet.read_u128::<BigEndian>()?;
     println!("Player login: {} {}", name, uuid);
     let first_char = info.config.kick_message.trim().chars().nth(0).unwrap();
