@@ -2,7 +2,9 @@ use byteorder::{BigEndian, ReadBytesExt};
 use json::{object, JsonValue};
 use serde::Deserialize;
 use std::{
-    io::{Error, Read, Write}, str::Utf8Error, string::{FromUtf8Error, FromUtf16Error}
+    io::{Error, Read, Write},
+    str::Utf8Error,
+    string::{FromUtf16Error, FromUtf8Error},
 };
 use uuid::Uuid;
 

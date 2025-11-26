@@ -1,7 +1,13 @@
 use clap::Parser;
 
 use std::{
-    fs, io, net::{TcpListener, TcpStream}, path::{Path, PathBuf}, str::FromStr, sync::{RwLock, mpsc}, thread, time::Duration
+    fs, io,
+    net::{TcpListener, TcpStream},
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::{mpsc, PoisonError, RwLock, RwLockReadGuard},
+    thread,
+    time::Duration,
 };
 
 use lazy_static::lazy_static;
@@ -18,7 +24,7 @@ use crate::{
 pub mod packets;
 pub mod player;
 
-lazy_static! (
+lazy_static! {
     static ref server_info: RwLock<ServerInfo> = ServerInfo {
         config: ServerConfig {
             version: String::from("custom"),
@@ -32,26 +38,36 @@ lazy_static! (
         icon: None,
     }
     .into();
-);
+}
 
 enum ClientError {
     IOError(io::Error),
-    InfoUnlock
+    InfoUnlock,
+}
+
+impl From<io::Error> for ClientError {
+    fn from(value: io::Error) -> Self {
+        ClientError::IOError(value)
+    }
+}
+
+impl From<PoisonError<RwLockReadGuard<'_, ServerInfo>>> for ClientError {
+    fn from(_: PoisonError<RwLockReadGuard<'_, ServerInfo>>) -> Self {
+        ClientError::InfoUnlock
+    }
 }
 
 fn handle_client(stream: TcpStream) -> Result<(), ClientError> {
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5))).map_err(ClientError::IOError)?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5))).map_err(ClientError::IOError)?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut player = Player::new(stream);
-    let info = &server_info.read().map_err(|_| ClientError::InfoUnlock)?;
+    let info = &server_info.read()?;
     loop {
         let state = player.receive_packet(&info);
         match state {
             Ok(_) => {
                 println!("{}: Finished receiving packet", player.addr);
-            },
+            }
             Err(e) => {
                 println!("Closed connection with {}", player.addr);
                 println!("reason: {:?}", e);
@@ -100,7 +116,7 @@ struct CommandArgs {
     #[arg(short, long, default_value_t = String::from("127.0.0.1:25565"))]
     ip: String,
     #[arg(short, long, default_value = "./config")]
-    cfgdir: PathBuf
+    cfgdir: PathBuf,
 }
 
 fn main() {
@@ -140,25 +156,26 @@ fn main() {
                     }
                 );
                 println!("Kick message: {}", info.config.kick_message);
-            },
-            Err(_) => { eprintln!("Couldn't unlock server info for reading"); }
+            }
+            Err(_) => {
+                eprintln!("Couldn't unlock server info for reading");
+            }
         }
     }
-    let receiver= 'receiverval: {
+    let receiver = 'receiverval: {
         let (sender, recver) = mpsc::channel::<Result<Event, notify::Error>>();
         let mut watcher = match notify::recommended_watcher(sender) {
             Ok(w) => w,
             Err(e) => {
                 eprintln!("Couldn't start file watcher! {}", e);
 
-                break 'receiverval None
+                break 'receiverval None;
             }
         };
-        let w = watcher
-            .watch(&args.cfgdir, RecursiveMode::NonRecursive);
-        if let Err(e) = w { 
+        let w = watcher.watch(&args.cfgdir, RecursiveMode::NonRecursive);
+        if let Err(e) = w {
             eprintln!("Couldn't watch config directory: {}", e);
-            break 'receiverval None
+            break 'receiverval None;
         }
 
         Some(recver)
@@ -197,7 +214,8 @@ fn main() {
                     match res {
                         Ok(event) => {
                             // TODO there may to be a better way of doing this...
-                            if event.kind == EventKind::Access(AccessKind::Close(AccessMode::Write)) {
+                            if event.kind == EventKind::Access(AccessKind::Close(AccessMode::Write))
+                            {
                                 for i in event.paths {
                                     if i.ends_with("config.toml") {
                                         load_config(&i);
