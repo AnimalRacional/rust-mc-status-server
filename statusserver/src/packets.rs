@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use json::{object, JsonValue};
+use log::{debug, error, info};
 use serde::Deserialize;
 use std::{
     io::{Error, Read, Write},
@@ -105,7 +106,7 @@ pub fn handle_status_login<T: Read>(
     client: &mut Player,
     info: &ServerInfo,
 ) -> Result<(), PacketError> {
-    println!("Received status/login packet from {}", client.addr);
+    debug!("Received status/login packet from {}", client.addr);
     let state = &client.state;
     match state {
         ConnectionState::HANDSHAKING => {
@@ -118,7 +119,7 @@ pub fn handle_status_login<T: Read>(
             handle_login(packet, client, info)?;
         }
         s => {
-            eprintln!(
+            error!(
                 "Invalid request: packet 0 in state {} by {}",
                 s, client.addr
             );
@@ -128,7 +129,7 @@ pub fn handle_status_login<T: Read>(
 }
 
 fn handle_handshake<T: Read>(packet: &mut T, client: &mut Player) -> Result<(), PacketError> {
-    println!("Received handshake packet from {}", client.addr);
+    debug!("Received handshake packet from {}", client.addr);
     let stream = packet;
     let protocol_version = varint::decode_stream(stream)? as u16;
     let strlen = varint::decode_stream(stream)? as usize;
@@ -139,7 +140,7 @@ fn handle_handshake<T: Read>(packet: &mut T, client: &mut Player) -> Result<(), 
     let intent = varint::decode_stream(stream)?;
     let intent = ConnectionState::try_from(intent as u8)
         .or_else(|_| Err(PacketError::DataError(vec![intent as u8])))?;
-    println!(
+    info!(
         "{}:{} connected with protocol {} intent {}",
         host, port, protocol_version, intent
     );
@@ -197,7 +198,7 @@ fn send_packet(packet_id: i32, data: &[u8], client: &mut Player) -> Result<(), P
 }
 
 pub fn handle_ping<T: Read>(data: &mut T, client: &mut Player) -> Result<(), PacketError> {
-    println!("{}: Ping packet", client.addr);
+    debug!("{}: Ping packet", client.addr);
     let pong = data.read_u64::<BigEndian>()?;
     send_packet(0x01, &pong.to_be_bytes(), client)?;
     Ok(())
@@ -208,7 +209,7 @@ fn handle_status<T: Read>(
     client: &mut Player,
     info: &ServerInfo,
 ) -> Result<(), PacketError> {
-    println!("Received status packet from {}", client.addr);
+    debug!("Received status packet from {}", client.addr);
     let protocol: u16 = match info.config.protocol {
         Some(p) => p,
         None => match &client.handshake_info {
@@ -238,10 +239,10 @@ fn handle_login<T: Read>(
     client: &mut Player,
     info: &ServerInfo,
 ) -> Result<(), PacketError> {
-    println!("Received login packet from {}", client.addr);
+    debug!("Received login packet from {}", client.addr);
     let name_len = varint::decode_stream(packet)?;
     if name_len <= 0 || name_len > 16 {
-        eprintln!("Invalid name length {}", name_len);
+        error!("Invalid name length {}", name_len);
         client.connection.shutdown(std::net::Shutdown::Both)?;
         return Err(PacketError::DataError(name_len.to_be_bytes().to_vec()));
     }
@@ -250,7 +251,7 @@ fn handle_login<T: Read>(
     packet.read_exact(namebuf)?;
     let name = str::from_utf8(namebuf)?;
     let uuid = packet.read_u128::<BigEndian>()?;
-    println!("Player login: {} {}", name, uuid);
+    info!("Player login: {} {}", name, uuid);
     let kick_message = match json::parse(&info.config.kick_message) {
         Ok(v) => v.to_string(),
         Err(_) => info.config.kick_message.to_string()

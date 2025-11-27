@@ -5,6 +5,7 @@ use std::{
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use log::{debug, error, info, warn};
 
 use crate::packets::{self, PacketError, ServerInfo};
 
@@ -88,19 +89,19 @@ impl Player {
     fn handle_packet<T: Read>(
         &mut self,
         packet: &mut T,
-        info: &ServerInfo,
+        server_info: &ServerInfo,
     ) -> Result<(), PacketError> {
         let packet_id = varint::decode_stream(packet)?;
-        println!("Packet id {:?} by {}", packet_id, self.addr);
+        debug!("Packet id {:?} by {}", packet_id, self.addr);
         match packet_id {
             0 => {
-                packets::handle_status_login(packet, self, info)?;
+                packets::handle_status_login(packet, self, server_info)?;
             }
             1 => {
                 packets::handle_ping(packet, self)?;
             }
             p => {
-                eprintln!("Invalid packet {} sent by {}", p, self.addr);
+                error!("Invalid packet {} sent by {}", p, self.addr);
             }
         };
         Ok(())
@@ -111,7 +112,6 @@ impl Player {
         if strlen > 255 {
             return Err(PacketError::DataError(strlen.to_be_bytes().to_vec()));
         }
-        println!("reading {}", strlen);
         let mut pingstr = Vec::<u16>::new();
         for _ in 0..strlen {
             pingstr.push(self.connection.read_u16::<BigEndian>()?);
@@ -119,39 +119,39 @@ impl Player {
         String::from_utf16(&pingstr).or_else(|e| Err(PacketError::FromUtf16Error(e)))
     }
 
-    fn handle_legacy_ping(&mut self, info: &ServerInfo) -> Result<(), PacketError> {
+    fn handle_legacy_ping(&mut self, server_info: &ServerInfo) -> Result<(), PacketError> {
         let packet_identifier = self.connection.read_u8()?;
         if packet_identifier != 0xfa {
-            eprintln!(
+            error!(
                 "{}: Invalid legacy ping packet identifier {}",
                 self.addr, packet_identifier
             );
         }
         let pinghost = self.read_utf16_string()?;
         if !pinghost.eq("MC|PingHost") {
-            eprintln!("{}: Unexpected ping string {}", self.addr, pinghost);
+            warn!("{}: Unexpected ping string {}", self.addr, pinghost);
         }
         self.connection.read_u16::<BigEndian>()?;
         let protocol = self.connection.read_u8()?;
         let hostname = self.read_utf16_string()?;
         let port = self.connection.read_u32::<BigEndian>()?;
-        println!(
+        info!(
             "(legacy) {} connecting to {}:{} protocol version {}",
             self.addr, hostname, port, protocol
         );
         // Send response
         let header = [0x00, 0xa7, 0x00, 0x31, 0x00, 0x00];
-        let protocol = match info.config.protocol {
+        let protocol = match server_info.config.protocol {
             Some(p) => p,
             None => protocol as u16,
         };
         let response = format!(
             "{}\x00{}\x00{}\x00{}\x00{}\x00",
             protocol,
-            info.config.version,
-            info.config.motd,
-            info.config.online_players,
-            info.config.max_players
+            server_info.config.version,
+            server_info.config.motd,
+            server_info.config.online_players,
+            server_info.config.max_players
         );
         self.connection.write_u8(0xff)?;
         self.connection
@@ -164,9 +164,9 @@ impl Player {
         Ok(())
     }
 
-    pub fn receive_packet(&mut self, info: &ServerInfo) -> Result<(), PacketError> {
+    pub fn receive_packet(&mut self, server_info: &ServerInfo) -> Result<(), PacketError> {
         let packet_size = varint::decode_stream(&mut self.connection)?;
-        println!("{} sent packet sized {}", self.addr, packet_size);
+        debug!("{} sent packet sized {}", self.addr, packet_size);
         if packet_size <= 0 {
             return Err(PacketError::ClosedError);
         }
@@ -174,13 +174,13 @@ impl Player {
             return Err(PacketError::ClosedError);
         }
         if packet_size == 254 && self.state == ConnectionState::HANDSHAKING {
-            self.handle_legacy_ping(info)?;
+            self.handle_legacy_ping(server_info)?;
             return Ok(());
         }
         let packet_size = packet_size as usize;
         let mut buf = vec![0; packet_size];
         self.connection.read_exact(&mut buf)?;
-        self.handle_packet(&mut buf.as_slice(), info)?;
+        self.handle_packet(&mut buf.as_slice(), server_info)?;
         Ok(())
     }
 }

@@ -1,4 +1,6 @@
 use clap::Parser;
+use env_logger::Env;
+use log::{debug, error, info, warn};
 
 use std::{
     fs, io,
@@ -76,16 +78,16 @@ fn handle_client(stream: TcpStream) -> Result<(), ClientError> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut player = Player::new(stream);
-    println!("Player {} connected!", player.addr);
+    info!("Player {} connected!", player.addr);
     let info = &server_info.read()?;
     loop {
         let state = player.receive_packet(&info);
         match state {
             Ok(_) => {
-                println!("{}: Finished receiving packet", player.addr);
+                debug!("{}: Finished receiving packet", player.addr);
             }
             Err(e) => {
-                println!("Closed connection with {}: {}", player.addr, e);
+                info!("Closed connection with {}: {}", player.addr, e);
                 if let PacketError::ClosedError = e {
                     return Ok(())
                 } else {
@@ -153,9 +155,12 @@ struct CommandArgs {
 }
 
 fn main() {
+    let env = Env::new().filter_or("RUST_LOG", "info");
+    env_logger::Builder::from_env(env).init();
+
     let args = CommandArgs::parse();
     let c = args.cfgdir.display();
-    println!("Using '{c}' as config dir");
+    info!("Using '{c}' as config dir");
     let config_path = {
         let mut c = args.cfgdir.clone();
         c.push("config.toml");
@@ -167,26 +172,26 @@ fn main() {
         c
     };
     match load_config(&config_path) {
-        Ok(_) => { println!("Loaded config {}", config_path.display()); },
-        Err(e) => { println!("Error loading config! {}", e); return; }
+        Ok(_) => { info!("Loaded config {}", config_path.display()); },
+        Err(e) => { error!("Error loading config! {}", e); return; }
     }
     match load_icon(&icon_path) {
-        Ok(_) => { println!("Loaded icon {}", icon_path.display()); },
-        Err(e) => { println!("Error loading icon! {}", e); }
+        Ok(_) => { info!("Loaded icon {}", icon_path.display()); },
+        Err(e) => { debug!("Error loading icon! {}", e); }
     }
     {
         let info = server_info.read();
         match info {
             Ok(info) => {
-                println!("Config has been loaded:");
-                println!(
+                info!("Config has been loaded:");
+                info!(
                     "Players: {}/{}",
                     info.config.online_players, info.config.max_players
                 );
                 for i in &info.config.player_list {
-                    println!("- {}", i.name);
+                    info!("- {}", i.name);
                 }
-                println!(
+                info!(
                     "Version {}, Protocol {}",
                     info.config.version,
                     match info.config.protocol {
@@ -194,16 +199,16 @@ fn main() {
                         None => "same as player",
                     }
                 );
-                println!("Motd: '{}'", info.config.motd);
-                println!("Kick message: '{}'", info.config.kick_message);
+                info!("Motd: '{}'", info.config.motd);
+                info!("Kick message: '{}'", info.config.kick_message);
                 if let Some(_) = info.icon {
-                    println!("Icon was loaded");
+                    info!("Icon was loaded");
                 } else {
-                    println!("No icon loaded");
+                    info!("No icon loaded");
                 }
             }
             Err(_) => {
-                eprintln!("Couldn't unlock server info for reading");
+                error!("Couldn't unlock server info for reading");
             }
         }
     }
@@ -212,9 +217,9 @@ fn main() {
     let mut watcher: Option<INotifyWatcher> = None;
     match notify::recommended_watcher(sender) {
         Ok(mut wtch) => { 
-            match wtch.watch(dbg!(&args.cfgdir.canonicalize().unwrap()), RecursiveMode::Recursive) {
+            match wtch.watch(&args.cfgdir, RecursiveMode::Recursive) {
                 Err(e) => {
-                    eprintln!("Couldn't watch config directory: {}", e);
+                    error!("Couldn't watch config directory: {}", e);
                     receiver = None;
                 },
                 Ok(_) => {
@@ -224,23 +229,22 @@ fn main() {
             };
         },
         Err(e) => {
-            eprintln!("Couldn't start file watcher! {}", e);
+            error!("Couldn't start file watcher! {}", e);
             receiver = None;
         }
     };
 
-    println!("Hello, world!");
     let listener = match TcpListener::bind(&args.ip) {
         Ok(listener) => listener,
         Err(e) => {
-            eprintln!(
+            error!(
                 "Something went wrong while listening for connections! {}",
                 e
             );
             return;
         }
     };
-    println!("Listening on {}", args.ip);
+    info!("Listening on {}", args.ip);
 
     thread::scope(move |s| {
         s.spawn(move || {
@@ -250,11 +254,11 @@ fn main() {
                         let client_thread = thread::Builder::new().name(String::from("Client Handler"));
                         let t = client_thread.spawn_scoped(s, move || handle_client(stream));
                         if let Err(e) = t {
-                            eprintln!("Couldn't spawn thread for client! {e}");
+                            error!("Couldn't spawn thread for client! {e}");
                         }
                     }
                     Err(e) => {
-                        eprintln!("Couldn't get client! {e}");
+                        error!("Couldn't get client! {e}");
                         return;
                     }
                 }
@@ -262,37 +266,37 @@ fn main() {
         });
         if let Some(receiver) = receiver {
             s.spawn(move || {
-                println!("Listening for config changes...");
+                info!("Listening for config changes...");
                 for res in receiver {
                     match res {
                         Ok(event) => {
                             // TODO there may to be a better way of doing this...
                             if event.kind == EventKind::Access(AccessKind::Close(AccessMode::Write))
                             {
-                                println!("Detected config directory change change...");
+                                debug!("Detected config directory change...");
                                 for i in event.paths {
                                     if i.ends_with("config.toml") {
                                         match load_config(&i) {
-                                            Ok(_) => { println!("Reloaded config"); }
-                                            Err(e) => { println!("Couldn't reload icon! {}", e); }
+                                            Ok(_) => { info!("Reloaded config"); }
+                                            Err(e) => { error!("Couldn't reload config! {}", e); }
                                         }
                                         break;
                                     } else if i.ends_with("icon.b64") {
                                         match load_icon(&i) {
-                                            Ok(_) => { println!("Reloaded icon"); }
-                                            Err(e) => { println!("Couldn't reload icon! {}", e); }
+                                            Ok(_) => { info!("Reloaded icon"); }
+                                            Err(e) => { error!("Couldn't reload icon! {}", e); }
                                         }
                                         break;
                                     }
                                 }
                             }
                         }
-                        Err(e) => eprintln!("file watch error {}", e),
+                        Err(e) => error!("file watch error {}", e),
                     }
                 }
             });
         } else {
-            eprintln!("Not listening for config changes!");
+            warn!("Not listening for config changes!");
         }
     });
     if let Some(mut w) = watcher {
