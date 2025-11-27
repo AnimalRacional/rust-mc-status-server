@@ -22,6 +22,19 @@ pub enum PacketError {
     ClosedError,
 }
 
+impl std::fmt::Display for PacketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IOError(e) => write!(f, "{}", e) ,
+            Self::FromUtf8Error(e) => write!(f, "Invalid string sent: {}", e),
+            Self::Utf8Error(e) => write!(f, "Invalid string sent: {}", e),
+            Self::FromUtf16Error(e) => write!(f, "Invalid legacy string sent: {}", e),
+            Self::DataError(e) => write!(f, "Player sent invalid data: {:?}", e),
+            Self::ClosedError => write!(f, "Connection closed")
+        }
+    }
+}
+
 impl From<std::io::Error> for PacketError {
     fn from(value: std::io::Error) -> Self {
         PacketError::IOError(value)

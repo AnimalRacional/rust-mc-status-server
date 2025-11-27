@@ -4,8 +4,7 @@ use std::{
     fs, io,
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
-    str::FromStr,
-    sync::{mpsc, PoisonError, RwLock, RwLockReadGuard},
+    sync::{PoisonError, RwLock, RwLockReadGuard, mpsc::{self, Receiver}},
     thread,
     time::Duration,
 };
@@ -17,7 +16,7 @@ use notify::{
 };
 
 use crate::{
-    packets::{ServerConfig, ServerInfo},
+    packets::{PacketError, ServerConfig, ServerInfo},
     player::Player,
 };
 
@@ -43,6 +42,23 @@ lazy_static! {
 enum ClientError {
     IOError(io::Error),
     InfoUnlock,
+    PacketError(PacketError)
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Self::IOError(e) => write!(f, "{}", e),
+            Self::InfoUnlock => write!(f, "Couldn't unlock server info"),
+            Self::PacketError(e) => write!(f, "{}", e)
+        }
+    }
+}
+
+impl From<PacketError> for ClientError {
+    fn from(value: PacketError) -> Self {
+        ClientError::PacketError(value)
+    }
 }
 
 impl From<io::Error> for ClientError {
@@ -61,6 +77,7 @@ fn handle_client(stream: TcpStream) -> Result<(), ClientError> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut player = Player::new(stream);
+    println!("Player {} connected!", player.addr);
     let info = &server_info.read()?;
     loop {
         let state = player.receive_packet(&info);
@@ -69,47 +86,64 @@ fn handle_client(stream: TcpStream) -> Result<(), ClientError> {
                 println!("{}: Finished receiving packet", player.addr);
             }
             Err(e) => {
-                println!("Closed connection with {}", player.addr);
-                println!("reason: {:?}", e);
-                break;
+                println!("Closed connection with {}: {}", player.addr, e);
+                if let PacketError::ClosedError = e {
+                    return Ok(())
+                } else {
+                    return Err(ClientError::PacketError(e));
+                }
             }
         }
     }
-    Ok(())
 }
 
-fn load_icon(icon_path: &Path) {
-    let icon: Option<String> = match fs::read_to_string(icon_path) {
-        Ok(icon_b64) => Some(icon_b64),
-        Err(e) => {
-            eprintln!("Couldn't read icon from icon.b64 file! {}", e);
-            None
-        }
-    };
+fn load_icon(icon_path: &Path) -> io::Result<()>{
+    let icon: Option<String> = Some(fs::read_to_string(icon_path)?);
     {
         let mut cfg = server_info.write().unwrap();
         cfg.icon = icon;
     }
+    Ok(())
 }
 
-fn load_config(config_path: &Path) {
-    match &fs::read_to_string(config_path) {
-        Ok(text) => match toml::from_str::<ServerConfig>(text) {
-            Ok(config) => {
-                let mut cfg = server_info.write().unwrap();
-                cfg.config = config;
-            }
-            Err(e) => {
-                eprintln!("Couldn't parse config file! {}", e);
-            }
-        },
-        Err(e) => {
-            eprintln!("Couldn't read config file! {}", e);
+#[derive(Debug)]
+enum ConfigLoadingError {
+    IOError(io::Error),
+    ConfigError(toml::de::Error)
+}
+
+impl std::fmt::Display for ConfigLoadingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            &ConfigLoadingError::IOError(e) => write!(f, "{}", e),
+            &ConfigLoadingError::ConfigError(e) => write!(f, "{}", e)
         }
     }
 }
 
-#[derive(Parser, Debug)]
+impl From<io::Error> for ConfigLoadingError {
+    fn from(value: io::Error) -> Self {
+        ConfigLoadingError::IOError(value)
+    }
+}
+
+impl From<toml::de::Error> for ConfigLoadingError {
+    fn from(value: toml::de::Error) -> Self {
+        ConfigLoadingError::ConfigError(value)
+    }
+}
+
+fn load_config(config_path: &Path) -> Result<(), ConfigLoadingError> {
+    let text = &fs::read_to_string(config_path)?;
+    let new_cfg = toml::from_str::<ServerConfig>(text)?;
+    {
+        let mut cfg = server_info.write().unwrap();
+        cfg.config = new_cfg;
+    }
+    Ok(())
+}
+
+#[derive(Parser)]
 #[command(version, about, long_about)]
 struct CommandArgs {
     // The host to open on
@@ -122,7 +156,7 @@ struct CommandArgs {
 fn main() {
     let args = CommandArgs::parse();
     let c = args.cfgdir.display();
-    println!("Using {c} as config dir");
+    println!("Using '{c}' as config dir");
     let config_path = {
         let mut c = args.cfgdir.clone();
         c.push("config.toml");
@@ -133,13 +167,19 @@ fn main() {
         c.push("icon.b64");
         c
     };
-    load_config(&config_path);
-    load_icon(&icon_path);
+    match load_config(&config_path) {
+        Ok(_) => { println!("Loaded config {}", config_path.display()); },
+        Err(e) => { println!("Error loading config! {}", e); return; }
+    }
+    match load_icon(&icon_path) {
+        Ok(_) => { println!("Loaded icon {}", icon_path.display()); },
+        Err(e) => { println!("Error loading icon! {}", e); }
+    }
     {
         let info = server_info.read();
         match info {
             Ok(info) => {
-                println!("Loaded config");
+                println!("Config has been loaded:");
                 println!(
                     "Players: {}/{}",
                     info.config.online_players, info.config.max_players
@@ -156,30 +196,18 @@ fn main() {
                     }
                 );
                 println!("Kick message: {}", info.config.kick_message);
+                if let Some(_) = info.icon {
+                    println!("Icon was loaded");
+                } else {
+                    println!("No icon loaded");
+                }
             }
             Err(_) => {
                 eprintln!("Couldn't unlock server info for reading");
             }
         }
     }
-    let receiver = 'receiverval: {
-        let (sender, recver) = mpsc::channel::<Result<Event, notify::Error>>();
-        let mut watcher = match notify::recommended_watcher(sender) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("Couldn't start file watcher! {}", e);
-
-                break 'receiverval None;
-            }
-        };
-        let w = watcher.watch(&args.cfgdir, RecursiveMode::NonRecursive);
-        if let Err(e) = w {
-            eprintln!("Couldn't watch config directory: {}", e);
-            break 'receiverval None;
-        }
-
-        Some(recver)
-    };
+    let receiver = create_file_watcher(&args.cfgdir);
 
     println!("Hello, world!");
     let listener = match TcpListener::bind(&args.ip) {
@@ -193,12 +221,17 @@ fn main() {
         }
     };
     println!("Listening on {}", args.ip);
+
     thread::scope(move |s| {
         s.spawn(move || {
             for client in listener.incoming() {
                 match client {
                     Ok(stream) => {
-                        std::thread::spawn(move || handle_client(stream));
+                        let client_thread = thread::Builder::new().name(String::from("Client Handler"));
+                        let t = client_thread.spawn_scoped(s, move || handle_client(stream));
+                        if let Err(e) = t {
+                            eprintln!("Couldn't spawn thread for client! {e}");
+                        }
                     }
                     Err(e) => {
                         eprintln!("Couldn't get client! {e}");
@@ -218,18 +251,22 @@ fn main() {
                             {
                                 for i in event.paths {
                                     if i.ends_with("config.toml") {
-                                        load_config(&i);
-                                        println!("Reloaded config");
+                                        match load_config(&i) {
+                                            Ok(_) => { println!("Reloaded config"); }
+                                            Err(e) => { println!("Couldn't reload icon! {}", e); }
+                                        }
                                         break;
                                     } else if i.ends_with("icon.b64") {
-                                        load_icon(&i);
-                                        println!("Reloaded icon");
+                                        match load_icon(&i) {
+                                            Ok(_) => { println!("Reloaded icon"); }
+                                            Err(e) => { println!("Couldn't reload icon! {}", e); }
+                                        }
                                         break;
                                     }
                                 }
                             }
                         }
-                        Err(e) => eprintln!("file watch error {:?}", e),
+                        Err(e) => eprintln!("file watch error {}", e),
                     }
                 }
             });
@@ -237,4 +274,22 @@ fn main() {
             eprintln!("Not listening for config changes!");
         }
     })
+}
+
+fn create_file_watcher(cfgdir: &Path) -> Option<Receiver<Result<Event, notify::Error>>> {
+    let (sender, recver) = mpsc::channel::<Result<Event, notify::Error>>();
+        let mut watcher = match notify::recommended_watcher(sender) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("Couldn't start file watcher! {}", e);
+                return None;
+            }
+        };
+        let w = watcher.watch(cfgdir, RecursiveMode::NonRecursive);
+        if let Err(e) = w {
+            eprintln!("Couldn't watch config directory: {}", e);
+            return None;
+        }
+
+        Some(recver)
 }
