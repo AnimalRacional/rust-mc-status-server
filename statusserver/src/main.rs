@@ -11,8 +11,7 @@ use std::{
 
 use lazy_static::lazy_static;
 use notify::{
-    event::{AccessKind, AccessMode},
-    Event, EventKind, RecursiveMode, Watcher,
+    Event, EventKind, INotifyWatcher, RecursiveMode, Watcher, event::{AccessKind, AccessMode}
 };
 
 use crate::{
@@ -207,7 +206,27 @@ fn main() {
             }
         }
     }
-    let receiver = create_file_watcher(&args.cfgdir);
+    let (sender, recver) = mpsc::channel::<Result<Event, notify::Error>>();
+    let receiver: Option<Receiver<Result<Event, notify::Error>>>;
+    let mut watcher: Option<INotifyWatcher> = None;
+    match notify::recommended_watcher(sender) {
+        Ok(mut wtch) => { 
+            match wtch.watch(dbg!(&args.cfgdir.canonicalize().unwrap()), RecursiveMode::Recursive) {
+                Err(e) => {
+                    eprintln!("Couldn't watch config directory: {}", e);
+                    receiver = None;
+                },
+                Ok(_) => {
+                    receiver = Some(recver);
+                    watcher = Some(wtch);
+                }
+            };
+        },
+        Err(e) => {
+            eprintln!("Couldn't start file watcher! {}", e);
+            receiver = None;
+        }
+    };
 
     println!("Hello, world!");
     let listener = match TcpListener::bind(&args.ip) {
@@ -241,14 +260,15 @@ fn main() {
             }
         });
         if let Some(receiver) = receiver {
-            println!("Listening for config changes...");
             s.spawn(move || {
+                println!("Listening for config changes...");
                 for res in receiver {
                     match res {
                         Ok(event) => {
                             // TODO there may to be a better way of doing this...
                             if event.kind == EventKind::Access(AccessKind::Close(AccessMode::Write))
                             {
+                                println!("Detected config directory change change...");
                                 for i in event.paths {
                                     if i.ends_with("config.toml") {
                                         match load_config(&i) {
@@ -273,23 +293,8 @@ fn main() {
         } else {
             eprintln!("Not listening for config changes!");
         }
-    })
-}
-
-fn create_file_watcher(cfgdir: &Path) -> Option<Receiver<Result<Event, notify::Error>>> {
-    let (sender, recver) = mpsc::channel::<Result<Event, notify::Error>>();
-        let mut watcher = match notify::recommended_watcher(sender) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("Couldn't start file watcher! {}", e);
-                return None;
-            }
-        };
-        let w = watcher.watch(cfgdir, RecursiveMode::NonRecursive);
-        if let Err(e) = w {
-            eprintln!("Couldn't watch config directory: {}", e);
-            return None;
-        }
-
-        Some(recver)
+    });
+    if let Some(mut w) = watcher {
+        w.unwatch(&args.cfgdir).ok();
+    }
 }
