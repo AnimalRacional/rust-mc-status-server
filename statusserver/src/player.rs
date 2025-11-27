@@ -76,7 +76,7 @@ pub struct Player {
 
 impl Player {
     pub fn new(connection: TcpStream) -> Self {
-        let addr = connection.local_addr().unwrap();
+        let addr = connection.peer_addr().unwrap();
         Player {
             connection,
             addr,
@@ -165,7 +165,7 @@ impl Player {
     }
 
     pub fn receive_packet(&mut self, info: &ServerInfo) -> Result<(), PacketError> {
-        let packet_size = varint::decode_stream(&mut self.connection).unwrap();
+        let packet_size = varint::decode_stream(&mut self.connection)?;
         println!("{} sent packet sized {}", self.addr, packet_size);
         if packet_size <= 0 {
             return Err(PacketError::ClosedError);
