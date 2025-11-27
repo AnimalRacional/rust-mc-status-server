@@ -194,7 +194,8 @@ fn main() {
                         None => "same as player",
                     }
                 );
-                println!("Kick message: {}", info.config.kick_message);
+                println!("Motd: '{}'", info.config.motd);
+                println!("Kick message: '{}'", info.config.kick_message);
                 if let Some(_) = info.icon {
                     println!("Icon was loaded");
                 } else {

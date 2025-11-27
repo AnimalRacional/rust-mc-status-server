@@ -78,7 +78,7 @@ impl From<PlayerListEntry> for JsonValue {
     fn from(value: PlayerListEntry) -> Self {
         object! {
             name: value.name.as_str(),
-            id: value.uuid.unwrap_or_else(|| DEFAULT_UUID).to_string()
+            id: value.uuid.unwrap_or(DEFAULT_UUID).to_string()
         }
     }
 }
@@ -163,17 +163,7 @@ fn make_status_response(
     secure: bool,
     icon: Option<&str>,
 ) -> String {
-    let first_char = motd.chars().nth(0).unwrap();
-    let motd = match first_char {
-        '[' | '{' => match json::parse(motd) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("Couldn't parse json motd: {}", e);
-                JsonValue::String(String::from("motd"))
-            }
-        },
-        _ => json::JsonValue::String(motd.to_string()),
-    };
+    let motd = json::parse(motd).unwrap_or(JsonValue::String(motd.to_string()));
     let icon = match icon {
         Some(i) => Some(format!("data:image/png;base64,{i}")),
         None => None,
@@ -255,17 +245,15 @@ fn handle_login<T: Read>(
         client.connection.shutdown(std::net::Shutdown::Both)?;
         return Err(PacketError::DataError(name_len.to_be_bytes().to_vec()));
     }
-    // let mut namebuf = vec![0; name_len as usize];
     let mut namebuf = [0u8; 16];
     let (namebuf, _) = namebuf.split_at_mut(name_len as usize);
     packet.read_exact(namebuf)?;
     let name = str::from_utf8(namebuf)?;
     let uuid = packet.read_u128::<BigEndian>()?;
     println!("Player login: {} {}", name, uuid);
-    let first_char = info.config.kick_message.trim().chars().nth(0).unwrap();
-    let kick_message: &str = match first_char {
-        '[' | '{' => &info.config.kick_message,
-        _ => &format!("\"{}\"", info.config.kick_message),
+    let kick_message = match json::parse(&info.config.kick_message) {
+        Ok(v) => v.to_string(),
+        Err(_) => info.config.kick_message.to_string()
     };
     let mut total_data = varint::encode(kick_message.len() as i32);
     total_data.extend(kick_message.as_bytes());
