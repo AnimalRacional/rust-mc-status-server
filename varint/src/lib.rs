@@ -5,13 +5,8 @@ pub fn decode_stream<T: Read>(stream: &mut T) -> Result<i32, Error> {
     let mut result: i32 = 0;
     let mut buf: [u8; 1] = [0];
     loop {
-        let i: Result<usize, Error> = stream.read(&mut buf);
-        let i = match i {
-            Ok(_) => buf[0] as i32,
-            Err(err) => {
-                return Err(err);
-            }
-        };
+        stream.read(&mut buf)?;
+        let i = buf[0] as i32;
         result = result | ((i & 0x7f) << shift);
         shift += 7;
         if i & 0x80 == 0 {
